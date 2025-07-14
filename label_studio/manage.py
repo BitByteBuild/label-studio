@@ -1,11 +1,15 @@
 #!/usr/bin/env python
-"""This file and its contents are licensed under the Apache License 2.0. Please see the included NOTICE for copyright information and LICENSE for a copy of the license.
-"""
+"""This file and its contents are licensed under the Apache License 2.0. Please see the included NOTICE for copyright information and LICENSE for a copy of the license."""
+
 import os
 import sys
 
-if __name__ == '__main__':
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'core.settings.label_studio')
+from dotenv import load_dotenv
+
+load_dotenv()
+
+if __name__ == "__main__":
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "core.settings.label_studio")
     # os.environ.setdefault('DEBUG', 'True')
     try:
         from django.conf import settings
@@ -17,7 +21,7 @@ if __name__ == '__main__':
     except ImportError as exc:
         raise ImportError(
             "Couldn't import Django. Are you sure it's installed and "
-            'available on your PYTHONPATH environment variable? Did you '
-            'forget to activate a virtual environment?'
+            "available on your PYTHONPATH environment variable? Did you "
+            "forget to activate a virtual environment?"
         ) from exc
     execute_from_command_line(sys.argv)

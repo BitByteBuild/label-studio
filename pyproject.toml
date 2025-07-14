@@ -75,6 +75,7 @@ dependencies = [
     ## HumanSignal repo dependencies :start
     "label-studio-sdk @ https://github.com/HumanSignal/label-studio-sdk/archive/2a34701fa51a6878ead752644fc5181243258a9e.zip",
     ## HumanSignal repo dependencies :end
+    "python-dotenv (>=1.1.1,<2.0.0)"
 ]
 
 [project.urls]
