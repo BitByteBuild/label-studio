@@ -14,7 +14,7 @@ USERNAME_MAX_LENGTH = 30
 DISPLAY_NAME_LENGTH = 100
 USERNAME_LENGTH_ERR = f"Please enter a username {USERNAME_MAX_LENGTH} characters or fewer in length"
 DISPLAY_NAME_LENGTH_ERR = f"Please enter a display name {DISPLAY_NAME_LENGTH} characters or fewer in length"
-INVALID_USER_ERROR = "The email and password you entered don't match."
+INVALID_USER_ERROR = "Invalid Credentials."
 
 FOUND_US_ELABORATE = "Other"
 FOUND_US_OPTIONS = (
@@ -41,21 +41,24 @@ class LoginForm(forms.Form):
         cleaned = super(LoginForm, self).clean()
         email = cleaned.get("email", "").lower()
         password = cleaned.get("password", "")
+
         if len(email) >= EMAIL_MAX_LENGTH:
             raise forms.ValidationError("Email is too long")
 
-        # advanced way for user auth
-        user = settings.USER_AUTH(User, email, password)
-
-        # regular access
-        if user is None:
-            user = auth.authenticate(email=email, password=password)
-
-        if user and user.is_active:
-            persist_session = cleaned.get("persist_session", False)
-            return {"user": user, "persist_session": persist_session}
-        else:
+        # Consider the native DB as the source of truth.
+        # The signup logic keeps the native DB in sync with Auth0.
+        # If there is no user with the given email, simply raise an error.
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
             raise forms.ValidationError(INVALID_USER_ERROR)
+
+        if not user.is_active:
+            raise forms.ValidationError(INVALID_USER_ERROR)
+
+        persist_session = cleaned.get("persist_session", False)
+        # This dict decides the attributes populated on form.cleaned_data
+        return {"user": user, "persist_session": persist_session, "email": email, "password": password}
 
 
 class UserSignupForm(forms.Form):
@@ -90,7 +93,9 @@ class UserSignupForm(forms.Form):
         return email
 
     def save(self):
+        print("save function")
         cleaned = self.cleaned_data
+        print(f"Cleaned data: {cleaned}")
         email = cleaned["email"].lower()
         allow_newsletters = None
         how_find_us = None
@@ -101,9 +106,8 @@ class UserSignupForm(forms.Form):
         if "elaborate" in cleaned and how_find_us == FOUND_US_ELABORATE:
             cleaned["elaborate"]
 
-        # Old code is kept for comparison
-        # user = User.objects.create_user(email, password, allow_newsletters=allow_newsletters)
         user = User.objects.create(email=email, allow_newsletters=allow_newsletters)
+        # Mark the user as having no password
         user.set_unusable_password()
         return user
 

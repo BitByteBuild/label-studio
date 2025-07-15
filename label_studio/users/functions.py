@@ -57,9 +57,14 @@ def check_avatar(files):
 
 def save_user(request, next_page, user_form):
     """Save user instance to DB"""
+    print("save_user 1")
     user = user_form.save()
+    print("save_user 2")
     user.username = user.email.split('@')[0]
+    print("save_user 3")
     user.save()
+
+    print("save_user 2")
 
     if Organization.objects.exists():
         org = Organization.objects.first()
@@ -88,7 +93,9 @@ def proceed_registration(request, user_form, organization_form, next_page):
     """Register a new user for POST user_signup"""
     # save user to db
     save_user = load_func(settings.SAVE_USER)
+    print("proceeding 1")
     response = save_user(request, next_page, user_form)
+    print("proceeding 2")
 
     return response
 

@@ -18,6 +18,7 @@ urlpatterns = [
     # Authentication
     path('user/login/', views.user_login, name='user-login'),
     path('user/signup/', views.user_signup, name='user-signup'),
+    path('oauth/google/callback', views.google_callback_handler, name='google-oauth'),
     path('user/account/', views.user_account, name='user-account'),
     path('user/account/<sub_path>', views.user_account, name='user-account-anything'),
     re_path(r'^logout/?$', views.logout, name='logout'),
