@@ -30,12 +30,18 @@
                 <p class="error"> {{ error }} </p>
             {% endfor %}
         {% endif %}
+        {% if error_msg %}
+               <p class="error"> {{ error_msg }} </p>
+        {% endif %}
         <div class="form-group">
             <input type="checkbox" id="persist_session" name="persist_session" class="lsf-checkbox-ls" checked="checked"
                 style="width: auto;" />
             <label for="persist_session">Keep me logged in this browser</label>
         </div>
         <button type="submit" aria-label="Log In" class="login-button">Log in</button>
+        <button type="button" aria-label="sign in with google" class="login-button" onclick="handleGoogleSignIn()">
+            Sign in with Google
+        </button>
     </form>
 </div>
 {% if not settings.DISABLE_SIGNUP_WITHOUT_LINK %}
@@ -44,4 +50,16 @@
     <a href="{% url 'user-signup' %}{% querystring %}">Sign up</a>
 </div>
 {% endif %}
+<script>
+    async function handleGoogleSignIn() {
+        const query = new URLSearchParams({
+            response_type: "code",
+            connection: "google-oauth2",
+            client_id: "{{ client_id }}",
+            redirect_uri: "{{ redirect_uri }}",
+            scope: "openid profile email"
+        });
+        location.href = `https://{{ auth0_domain }}/authorize?${query}`
+    }
+</script>
 {% endblock %}

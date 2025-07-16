@@ -82,14 +82,16 @@ def user_signup(request):
             if token and organization and token != organization.token:
                 raise PermissionDenied()
 
-        # A bound form is when the data is bound to the form instance
+        # ======== Main Logic ========
+
+        # Bound form i.e. data is bound to the form instance
         user_form = forms.UserSignupForm(request.POST)
         organization_form = OrganizationSignupForm(request.POST)
 
         # Run validation checks on the form data
-        # For valid data, returns True and populates the form's cleaned_data attribute with the normalized data
+        # If valid, returns True and populates the cleaned_data attribute of the form with normalized data
+        # Begin by authenticating with Auth0 to receive an access_token for managing users
         if user_form.is_valid():
-            # Authenticate with Auth0 to receive an access_token for managing users
             res = requests.post(
                 url=f"https://{auth0_domain}/oauth/token",
                 json={
@@ -99,7 +101,7 @@ def user_signup(request):
                     "audience": f"https://{auth0_domain}/api/v2/",
                 },
             )
-            # In case the API call fails, render the signup page with a non-field specific error message
+            # In case the API call fails, render the signup template with a non-field error
             if res.status_code != 200:
                 user_form.add_error(None, "Something Went Wrong")
                 return render(
@@ -122,13 +124,13 @@ def user_signup(request):
 
             # Normalized Data
             user_data = user_form.cleaned_data
-
-            # Call Auth0 to create a new user in the DB that this backend client is authorized to use
+            # Call Auth0 to create a new user in the DB that this M2M client is authorized to use
             res = requests.post(
                 url=f"https://{auth0_domain}/api/v2/users",
                 headers={"Content-Type": "application/json", "Authorization": f"Bearer {access_token}"},
                 json={"email": user_data.get("email"), "password": user_data.get("password"), "connection": auth0_db},
             )
+
             if res.status_code != 201:
                 user_form.add_error(None, "Unable to process your data")
                 print(f"user_form.data (Auth0 create user failed): {user_form.data}")
@@ -147,8 +149,8 @@ def user_signup(request):
                         "auth0_domain": auth0_domain,
                     },
                 )
-
-            # Also push a new record in the native DB (without the password)
+            # Push a new record in the native DB with an "unusable" password
+            # Keeps it in sync with Auth0
             redirect_response = proceed_registration(request, user_form, organization_form, next_page)
             if redirect_response:
                 return redirect_response
@@ -175,6 +177,7 @@ def user_login(request):
     """Login page"""
     user = request.user
     next_page = request.GET.get("next")
+    oauth_error = request.GET.get("oauth")
 
     # checks if the URL is a safe redirection.
     if not next_page or not url_has_allowed_host_and_scheme(url=next_page, allowed_hosts=request.get_host()):
@@ -186,6 +189,22 @@ def user_login(request):
     login_form = load_func(settings.USER_LOGIN_FORM)
     form = login_form()
 
+    # If OAuth fails, render the login template with an error field in its context
+    if oauth_error:
+        error_msg = "Invalid Token" if oauth_error == "invalid_token" else "Something Went Wrong"
+        return render(
+            request,
+            "users/new-ui/user_login.html",
+            {
+                "form": form,
+                "next": quote(next_page),
+                "client_id": auth0_id,
+                "redirect_uri": google_oauth_redir_uri,
+                "auth0_domain": auth0_domain,
+                "error_msg": error_msg
+            },
+        )
+
     if user.is_authenticated:
         return redirect(next_page)
 
@@ -193,9 +212,10 @@ def user_login(request):
         form = login_form(request.POST)
 
         # Returns True only when the user exists in the native DB
+        # LoginForm takes care of the search
+        # If found, call Auth0 to validate the credentials
         if form.is_valid():
             creds = form.cleaned_data
-            # Call Auth0 to check the credentials, especially the password
             res = requests.post(
                 url=f"https://{auth0_domain}/oauth/token",
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
@@ -211,7 +231,17 @@ def user_login(request):
             )
             if res.status_code != 200:
                 form.add_error(None, "Invalid Credentials")
-                return render(request, "users/new-ui/user_login.html", {"form": form, "next": quote(next_page)})
+                return render(
+                    request,
+                    "users/new-ui/user_login.html",
+                    {
+                        "form": form,
+                        "next": quote(next_page),
+                        "client_id": auth0_id,
+                        "redirect_uri": google_oauth_redir_uri,
+                        "auth0_domain": auth0_domain,
+                    },
+                )
 
             user = form.cleaned_data["user"]
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
@@ -226,11 +256,29 @@ def user_login(request):
             user.save(update_fields=["active_organization"])
             return redirect(next_page)
 
-    return render(request, "users/new-ui/user_login.html", {"form": form, "next": quote(next_page)})
+    return render(
+        request,
+        "users/new-ui/user_login.html",
+        {
+            "form": form,
+            "next": quote(next_page),
+            "client_id": auth0_id,
+            "redirect_uri": google_oauth_redir_uri,
+            "auth0_domain": auth0_domain,
+        },
+    )
 
 
 def google_callback_handler(request):
-    """ """
+    """
+    * Receives the authorization code as a query param
+    * Hits Auth0 with the code for an ID token
+    * A public key is needed to verify the JWT, since Auth0 uses an asymmetric signature
+        - The public key ID is made available in the JWT header
+        - For each of its tenants, Auth0 exposes an endpoint to retreive the keyset (JWKs).
+    * If the key ID is found in the keyset, then the corresponding JWK is used to verify and decode the JWT.
+    * For any error during the verification process, the login template is rendered with a relevant message.
+    """
     code = request.GET.get("code")
 
     res = requests.post(
@@ -245,39 +293,43 @@ def google_callback_handler(request):
         },
     )
 
-    # TODO: Redirection logic
     if res.status_code != 200:
-        pass
+        return redirect("/user/login?oauth=server_error")
 
     resData = res.json()
     id_token = resData["id_token"]
-
     id_token_header = jwt.get_unverified_header(id_token)
     key_id = id_token_header["kid"]
 
+    # Fetch the public keyset or JWKS (JSON Web Key Set)
     res = requests.get(f"https://{auth0_domain}/.well-known/jwks.json")
 
-    # TODO: Redirection logic
     if res.status_code != 200:
-        pass
+        return redirect("/user/login?oauth=server_error")
 
     jwks = res.json()
     keys: List[dict] = jwks["keys"]
 
+    # Search for key_id in the keyset
+    # If found, use the corresponding key (JWK) for JWT verification
     public_key = None
     for k in keys:
         if k["kid"] == key_id:
             public_key = k
             break
 
-    if not public_key:
-        raise JOSEError()
+    try:
+        if not public_key:
+            raise JOSEError()
+        owner_info = jwt.decode(id_token, key=public_key, algorithms=["RS256"], audience=auth0_id)
+    except JOSEError:
+        return redirect("/user/login?oauth=invalid_token")
 
-    owner_info = jwt.decode(id_token, key=public_key, algorithms=["RS256"], audience=auth0_id)
     email = owner_info["email"]
-
     next_page = reverse("projects:project-index")
     user = None
+
+    # For fresh login, create a new record in the native DB with an unusable password
     try:
         user = User.objects.get(email=email)
     except User.DoesNotExist:
@@ -285,6 +337,7 @@ def google_callback_handler(request):
         user.set_unusable_password()
         user.save()
 
+    # For consistency, this is copied from the original login flow
     if Organization.objects.exists():
         org = Organization.objects.first()
         org.add_user(user)
