@@ -42,7 +42,7 @@ services:
       - JSON_LOG=1
     #      - LOG_LEVEL=DEBUG
     volumes:
-      - ./mydata:/label-studio/data:rw
+      - label-studio-data:/label-studio/data:rw
     command: label-studio-uwsgi
 
   db:
@@ -62,3 +62,7 @@ services:
     volumes:
       - ${POSTGRES_DATA_DIR:-./postgres-data}:/var/lib/postgresql/data
       - ./deploy/pgsql/certs:/var/lib/postgresql/certs:ro
+
+volumes:
+  postgres-data:
+  label-studio-data:
